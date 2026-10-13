@@ -261,7 +261,9 @@ DDCP4P2TensorCompute::computeBuffer()
     }
     catch (const std::exception & e)
     {
-      mooseError("DDCP4P2 failed at local voxel ", v, ": ", e.what());
+      throw std::runtime_error("DDCP4P2 local voxel " + std::to_string(v) +
+                               " grain " + std::to_string(in.grain_id) +
+                               " integration failed: " + e.what());
     }
     for (int i=0; i<3; ++i)
       for (int j=0; j<3; ++j)
@@ -287,7 +289,9 @@ DDCP4P2TensorCompute::computeBuffer()
       }
       catch (const std::exception & e)
       {
-        mooseError("DDCP4P2 full-update tangent failed at voxel ", v, ": ", e.what());
+        throw std::runtime_error("DDCP4P2 local voxel " + std::to_string(v) +
+                                 " grain " + std::to_string(in.grain_id) +
+                                 " full-update tangent failed: " + e.what());
       }
     }
 

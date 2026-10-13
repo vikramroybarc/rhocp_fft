@@ -1,7 +1,7 @@
 # EARLY DEVELOPMENT TEST INPUT. Requires Marlin source additions and
 # DDCPFFTVolumeAverage postprocessor source in this package.
 # a complete 54-property bcc_props_54.in file (NOT supplied).
-# This input is for a single-orientation, periodic 8^3 CPU trial.
+# This input is for a two-grain 4x4x4 periodic CPU trial.
 [Domain]
   dim = 3
   nx = 4
@@ -9,7 +9,7 @@
   nz = 4
   mesh_mode = DUMMY
   device_names = cpu
-#  parallel_mode = NONE
+  # parallel_mode = NONE
   floating_precision = DOUBLE
 []
 
@@ -55,22 +55,20 @@
       state_new = state_new
       propsFile = bcc_props_54.in
       slipSysFile = bcc_slip_sys1.in
-      euler_degrees = '0 0 0'
+      # Read polycrystal grain orientations and global voxel map from orientation.in.
+      # The default orientation_file is 'orientation.in' relative to the run directory.
+      orientation_file = orientation.in
       temperature = 300
       g = 1
       gp = 1
       climbmodel = false
       irad_defects = false
       decomposition = 0
-     use_implicit_tangent = FALSE
-	tol = 1e-7
-	ift_rate_step = 1e-5
-	fd_step = 1e-6
-	verify_tangent = true
-	verify_tolerance = 1e-3
-	verify_tangent_warn_only = true
-	verify_reference_fd = true
-	verify_max_reports = 10
+      use_implicit_tangent = true
+      ift_rate_step = 1e-5
+      fd_step = 1e-6
+      verify_tangent = false  # Enable separately for tangent-validation runs
+      verify_tolerance = 1e-3
     []
     [root]
       [macro]
@@ -82,7 +80,7 @@
         rate = 1e-3
       []
       [mech]
-        type = FFTMechanics
+        type = DDCPFFTMechanics
         buffer = Fnew
         F = F
         K = K
@@ -108,7 +106,9 @@
 []
 
 [TensorSolver]
-  type = ForwardEulerSolver
+  type = DDCPFFTForwardSolver
+  mechanics_compute = mech
+  rollback_buffers = 'F state Fnew state_new stress dstressdstrain applied_strain'
   root_compute = root
   forward_buffer = 'F state'
   forward_buffer_new = 'Fnew state_new'
@@ -171,31 +171,18 @@
     file_base = ddcp_fft_curve
     execute_on = TIMESTEP_END
   []
-
-  [checkpoint]
-    type = Checkpoint
-    execute_on = TIMESTEP_END
-    time_step_interval = 10
-    num_files = 3
-  []  
 []
 
 [Executioner]
   type = Transient
-  end_time = 10
-
+  end_time = 10.0
+  dtmin = 1e-6
+  dtmax = 1
+  abort_on_solve_fail = false
   [TimeStepper]
-    type = FunctionDT
-    function = dt_schedule
-    growth_factor = 1.5
-  []
-[]
-
-[Functions]
-  [dt_schedule]
-    type = PiecewiseConstant
-    x = '0 1 4'
-    y = '0.1 0.1 0.1'
-    direction = LEFT_INCLUSIVE
+    type = DDCPFFTCutbackDT
+    dt = 1
+    growth_factor = 1.2
+    cutback_factor_at_failure = 0.5
   []
 []

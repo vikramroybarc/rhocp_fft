@@ -31,10 +31,13 @@ DDCPAffineLoadTensor::DDCPAffineLoadTensor(const InputParameters & params)
 void
 DDCPAffineLoadTensor::computeBuffer()
 {
+  // Evaluate the prescribed loading at the END of the trial timestep.  On
+  // cutback, subDt() changes and the target is recomputed consistently.
+  const Real target_time = _time + _tensor_problem.subDt();
   auto target = torch::eye(_dim, MooseTensor::floatTensorOptions());
 target.index_put_(
     {static_cast<int64_t>(_i), static_cast<int64_t>(_j)},
-    (_i == _j ? 1.0 : 0.0) + _rate * _time
+    (_i == _j ? 1.0 : 0.0) + _rate * target_time
 );
   _u = target - _domain.average(_F);
 }
