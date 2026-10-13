@@ -22,8 +22,9 @@ private:
   torch::Tensor & _state_new;
   torch::Tensor & _tangent;
   DDCP4P2Data _data;
+  // One orientation and grain ID per local voxel, in contiguous Torch order.
   std::vector<std::array<Real,3>> _orientations;
-  std::array<Real,3> _euler_degrees;
+  std::vector<int> _voxel_grain_ids;
   Real _temperature;
   Real _g;
   Real _gp;

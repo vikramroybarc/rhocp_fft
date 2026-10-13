@@ -66,6 +66,7 @@ DDCP4P2Result DDCP4P2Point::integrate(const DDCP4P2Input & input)
   _ever_subdivided = false;
   _A_implicit.zero();
   _input_euler = input.euler_degrees;
+  _grainid = input.grain_id;
   _has_grain_size = input.grain_size > 0.;
   _grain_size = input.grain_size;
   _deformation_gradient_old[0] = input.F_old;
@@ -268,7 +269,6 @@ void DDCP4P2Point::computeQpStress()
   if (_t_step <= 1) {
 
   // FFT voxel orientation (degrees), supplied by caller.
-  _grainid = 0;
   psi[0] = _input_euler[0];
   psi[1] = _input_euler[1];
   psi[2] = _input_euler[2];

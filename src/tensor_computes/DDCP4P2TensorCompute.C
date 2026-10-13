@@ -1,5 +1,6 @@
 #include "DDCP4P2TensorCompute.h"
 #include "DDCP4P2Tangent.h"
+#include "DDCPOrientationMap.h"
 #include "DomainAction.h"
 #include "MooseError.h"
 #include "TensorProblem.h"
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <string>
+#include <mpi.h>
 
 registerMooseObject("RhocpFFTApp", DDCP4P2TensorCompute);
 
@@ -28,16 +30,6 @@ loadProperties(const FileName & path)
   return values;
 }
 
-std::vector<std::array<Real,3>>
-loadEulerFile(const FileName & path)
-{
-  std::ifstream f(path);
-  if (!f) throw std::runtime_error("Unable to open Euler-angle file: " + std::string(path));
-  std::vector<std::array<Real,3>> rows;
-  std::array<Real,3> v;
-  while (f >> v[0] >> v[1] >> v[2]) rows.push_back(v);
-  return rows;
-}
 
 DDCP4P2Data
 loadData(const FileName & props, const FileName & slips,
@@ -91,8 +83,9 @@ DDCP4P2TensorCompute::validParams()
   params.addParam<TensorOutputBufferName>("tangent_operator", "dstressdstrain", "FFT tangent buffer");
   params.addRequiredParam<FileName>("propsFile", "Original 54-entry DDCP properties file");
   params.addRequiredParam<FileName>("slipSysFile", "Original six-columns-per-system slip input");
-  params.addParam<FileName>("euler_file", "", "Optional three Euler angles in degrees per local voxel");
-  params.addParam<std::vector<Real>>("euler_degrees", {0.,0.,0.}, "Uniform Euler angles in degrees");
+  params.addParam<FileName>("orientation_file", "orientation.in",
+                            "Global polycrystal file: GRID dimensions, GRAINS with Bunge Euler "
+                            "angles (degrees), then VOXELS grain IDs in z-fastest order");
   params.addParam<Real>("temperature", 300., "Temperature in K");
   params.addParam<Real>("g", 1., "Elastic degradation factor");
   params.addParam<Real>("gp", 1., "Plastic degradation factor");
@@ -140,7 +133,6 @@ DDCP4P2TensorCompute::DDCP4P2TensorCompute(const InputParameters & params)
                    getParam<unsigned int>("crsslaw"),
                    getParam<unsigned int>("decomposition"),
                    getParam<Real>("tol"))),
-    _euler_degrees{{0.,0.,0.}},
     _temperature(getParam<Real>("temperature")),
     _g(getParam<Real>("g")),
     _gp(getParam<Real>("gp")),
@@ -153,18 +145,60 @@ DDCP4P2TensorCompute::DDCP4P2TensorCompute(const InputParameters & params)
     _verify_reference_fd(getParam<bool>("verify_reference_fd")),
     _verify_max_reports(getParam<unsigned int>("verify_max_reports"))
 {
-  const auto & euler = getParam<std::vector<Real>>("euler_degrees");
-  if (euler.size() != 3)
-    paramError("euler_degrees", "Must contain exactly three angles in degrees");
-  std::copy(euler.begin(),euler.end(),_euler_degrees.begin());
   if (_ift_rate_step <= 0. || !std::isfinite(_ift_rate_step))
     paramError("ift_rate_step", "Must be positive and finite");
   if (_fd_step <= 0. || !std::isfinite(_fd_step))
     paramError("fd_step", "Must be positive and finite");
   if (_verify_tolerance <= 0. || !std::isfinite(_verify_tolerance))
     paramError("verify_tolerance", "Must be positive and finite");
-  const auto euler_file = getParam<FileName>("euler_file");
-  if (!euler_file.empty()) _orientations = loadEulerFile(euler_file);
+  // Load a single global microstructure map on each MPI rank, then select its
+  // own non-overlapping spatial subset using Marlin's true real-space bounds.
+  // This works with serial, FFT_SLAB and FFT_PENCIL decompositions and avoids
+  // relying on local flat indices that change with MPI rank count.
+  const auto orientation_file = getParam<FileName>("orientation_file");
+  DDCPOrientation::Map orientation_map;
+  try
+  {
+    orientation_map = DDCPOrientation::Map::read(std::string(orientation_file));
+  }
+  catch (const std::exception & e)
+  {
+    paramError("orientation_file", e.what());
+  }
+
+  if (_dim != 3)
+    paramError("orientation_file", "The DDCP4P2 point model requires a 3D voxel grid");
+
+  const auto global_grid = _domain.getGridSize();
+  if (orientation_map.grid() != global_grid)
+    paramError("orientation_file", "GRID dimensions in orientation.in must match "
+               "the global [Domain] nx, ny and nz exactly");
+
+  int mpi_rank = 0;
+  MPI_Comm_rank(_domain.getMPIComm(), &mpi_rank);
+  std::array<int64_t, 3> first{{0, 0, 0}}, last{{0, 0, 0}};
+  _domain.getLocalBounds(static_cast<unsigned int>(mpi_rank), first, last);
+  const auto local_grid = _domain.getLocalGridSize();
+  for (unsigned int d = 0; d < 3; ++d)
+    if (last[d] - first[d] != local_grid[d])
+      mooseError("DDCP4P2 orientation: inconsistent Marlin local grid bounds on rank ", mpi_rank);
+
+  _orientations.reserve(static_cast<std::size_t>(local_grid[0] * local_grid[1] * local_grid[2]));
+  _voxel_grain_ids.reserve(_orientations.capacity());
+  for (int64_t i = first[0]; i < last[0]; ++i)
+    for (int64_t j = first[1]; j < last[1]; ++j)
+      for (int64_t k = first[2]; k < last[2]; ++k)
+      {
+        const auto e = orientation_map.eulerDegrees(i, j, k);
+        _orientations.push_back({{e[0], e[1], e[2]}});
+        _voxel_grain_ids.push_back(orientation_map.grainId(i, j, k));
+      }
+
+  if (mpi_rank == 0)
+    mooseInfo("DDCP4P2 polycrystal: loaded ", orientation_map.grainCount(),
+              " grains and ", orientation_map.voxelCount(),
+              " global voxels from ", orientation_file);
+
 }
 
 void
@@ -186,8 +220,10 @@ DDCP4P2TensorCompute::computeBuffer()
       static_cast<unsigned int>(_data.normals.size()), _data.irradiation, _data.climb);
   if (Fold.size(0) != nvox || state.numel() != nvox*nstate)
     mooseError("DDCP4P2 F/state buffer dimensions do not match grid or stateCount");
-  if (!_orientations.empty() && static_cast<int64_t>(_orientations.size()) != nvox)
-    mooseError("Euler file needs one triplet for each locally-owned FFT voxel");
+  if (static_cast<int64_t>(_orientations.size()) != nvox ||
+      static_cast<int64_t>(_voxel_grain_ids.size()) != nvox)
+    mooseError("DDCP4P2 orientation count does not match locally-owned FFT voxels; "
+               "check [Domain] dimensions and orientation_file");
 
   const auto old_states = state.reshape({nvox,static_cast<int64_t>(nstate)});
   const auto P = torch::empty_like(Fnew);
@@ -208,7 +244,8 @@ DDCP4P2TensorCompute::computeBuffer()
     in.F_old = loadMatrix(pfold+9*v);
     in.F_new = loadMatrix(pfnew+9*v);
     in.state_old.assign(pstate+nstate*v,pstate+nstate*(v+1));
-    in.euler_degrees = _orientations.empty() ? _euler_degrees : _orientations[v];
+    in.euler_degrees = _orientations[v];
+    in.grain_id = _voxel_grain_ids[v];
     in.dt = _tensor_problem.subDt();
     in.temperature = _temperature;
     in.g = _g;

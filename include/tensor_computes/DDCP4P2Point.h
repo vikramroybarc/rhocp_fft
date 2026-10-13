@@ -31,6 +31,7 @@ struct DDCP4P2Input
   RankTwoTensor stress_old;
   std::vector<Real> state_old;
   std::array<Real,3> euler_degrees{{0.,0.,0.}};
+  int grain_id = 0; // Global grain ID from orientation.in; diagnostic only
   Real dt = 0.;
   Real temperature = 300.;
   Real g = 1.;

@@ -105,7 +105,8 @@ temp_print_trace.*
 *.data
 *.processor.*
 *.h5
-*.xmf
+*.xmf*
+*.xdf
 .clang_complete
 .failed_tests
 failed-unittest
