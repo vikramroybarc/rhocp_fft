@@ -1,6 +1,11 @@
 # RhoCP-FFT (`rhocp_fft`)
 
+<<<<<<< HEAD
 **A research application combining MOOSE finite-element capabilities, Marlin FFT-based mechanics, and dislocation-density crystal plasticity (DDCP).**
+=======
+These are drop-in replacements for **stork.sh generated app**. The new app remains
+`rhocp_fft`, with C++ class `RhocpFFTApp`. None of your other code is overwritten.
+>>>>>>> f3e66405f89068925336176b05d6c3378efd3fb0
 
 `rhocp_fft` is a standalone MOOSE application created with the MOOSE Stork application generator and extended to link against [Marlin](https://github.com/idaholab/marlin). The goal is to maintain custom DDCP constitutive models, FFT tensor operators, diagnostics, and solver improvements in one project without directly editing the upstream MOOSE or Marlin source trees for every change. Changes to Marlin core internals may still require a Marlin fork or upstream patch.
 
