@@ -1,6 +1,6 @@
 # RhocpFFTApp: MOOSE + Marlin build changes
 
-These are drop-in replacements for your **stork.sh generated app**. The new app remains
+These are drop-in replacements for **stork.sh generated app**. The new app remains
 `rhocp_fft`, with C++ class `RhocpFFTApp`. None of your other code is overwritten.
 
 ## Placement
