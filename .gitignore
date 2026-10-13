@@ -104,6 +104,8 @@ temp_print_trace.*
 *.bak
 *.data
 *.processor.*
+*.h5
+*.xmf
 .clang_complete
 .failed_tests
 failed-unittest
