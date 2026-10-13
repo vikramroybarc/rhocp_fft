@@ -1,18 +1,10 @@
-//* This file is part of the MOOSE framework
-//* https://mooseframework.inl.gov
-//*
-//* All rights reserved, see COPYRIGHT for full restrictions
-//* https://github.com/idaholab/moose/blob/master/COPYRIGHT
-//*
-//* Licensed under LGPL 2.1, please see LICENSE for details
-//* https://www.gnu.org/licenses/lgpl-2.1.html
-
-#include "RhocpFFTTestApp.h"
+// Optional: launch the production application instead of the Stork-generated test app.
+// Use only if you do NOT need the test-objects-enabled executable as default.
+#include "RhocpFFTApp.h"
 #include "MooseMain.h"
 
-// Begin the main program.
 int
 main(int argc, char * argv[])
 {
-  return Moose::main<RhocpFFTTestApp>(argc, argv);
+  return Moose::main<RhocpFFTApp>(argc, argv);
 }

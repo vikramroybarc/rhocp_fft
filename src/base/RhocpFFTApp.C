@@ -1,21 +1,22 @@
 #include "RhocpFFTApp.h"
-#include "Moose.h"
 #include "AppFactory.h"
-#include "ModulesApp.h"
-#include "MooseSyntax.h"
+#include "Moose.h"
+#include "Registry.h"
 
 InputParameters
 RhocpFFTApp::validParams()
 {
-  InputParameters params = MooseApp::validParams();
-  params.set<bool>("use_legacy_material_output") = false;
-  params.set<bool>("use_legacy_initial_residual_evaluation_behavior") = false;
+  // Retain Marlin-specific application parameters (such as compute_device).
+  InputParameters params = MarlinApp::validParams();
   return params;
 }
 
-RhocpFFTApp::RhocpFFTApp(const InputParameters & parameters) : MooseApp(parameters)
+RhocpFFTApp::RhocpFFTApp(const InputParameters & parameters) : MarlinApp(parameters)
 {
-  RhocpFFTApp::registerAll(_factory, _action_factory, _syntax);
+  // MarlinApp's constructor registers the MOOSE/Marlin objects and syntax.
+  // Register ONLY this application's own objects here to avoid duplicate syntax.
+  Registry::registerObjectsTo(_factory, {"RhocpFFTApp"});
+  Registry::registerActionsTo(_action_factory, {"RhocpFFTApp"});
 }
 
 RhocpFFTApp::~RhocpFFTApp() {}
@@ -23,16 +24,16 @@ RhocpFFTApp::~RhocpFFTApp() {}
 void
 RhocpFFTApp::registerAll(Factory & f, ActionFactory & af, Syntax & syntax)
 {
-  ModulesApp::registerAllObjects<RhocpFFTApp>(f, af, syntax);
+  // Static registration path, used when dynamically loading this application.
+  MarlinApp::registerAll(f, af, syntax);
   Registry::registerObjectsTo(f, {"RhocpFFTApp"});
   Registry::registerActionsTo(af, {"RhocpFFTApp"});
-
-  /* register custom execute flags, action syntax, etc. here */
 }
 
 void
 RhocpFFTApp::registerApps()
 {
+  MarlinApp::registerApps();
   registerApp(RhocpFFTApp);
 }
 
@@ -44,6 +45,7 @@ RhocpFFTApp__registerAll(Factory & f, ActionFactory & af, Syntax & s)
 {
   RhocpFFTApp::registerAll(f, af, s);
 }
+
 extern "C" void
 RhocpFFTApp__registerApps()
 {
