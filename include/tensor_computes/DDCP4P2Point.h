@@ -38,6 +38,7 @@ struct DDCP4P2Input
   Real gp = 1.;
   Real grain_size = 0.; // zero means use grain size from props file
   bool request_implicit_tangent = false;
+  bool request_option_a_tangent = false; // Jaumann-assumed pull-back (approximate)
   Real ift_F_step = 1e-6;
   Real ift_rate_step = 1e-5;
 };
@@ -48,6 +49,8 @@ struct DDCP4P2Result
   RankTwoTensor P;
   RankFourTensor C_local;
   RankFourTensor A_implicit;
+  RankFourTensor A_option_a; // full 81-component approximate dP/dF
+  bool option_a_tangent_available = false;
   bool implicit_tangent_available = false;
   bool used_constitutive_subincrements = false;
   std::string ift_status;

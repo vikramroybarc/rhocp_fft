@@ -26,6 +26,7 @@ DDCP4P2PointModified::integrate(const DDCP4P2Input & input)
         for (unsigned int l = 0; l < 3; ++l)
         {
           out.A_implicit(i,j,k,l) *= _stress_scale;
+          out.A_option_a(i,j,k,l) *= _stress_scale;
           out.C_local(i,j,k,l) *= _stress_scale;
         }
     }

@@ -36,6 +36,7 @@ private:
   Real _gp;
   Real _fd_step;
   bool _use_implicit_tangent;
+  const std::string _tangent_method; // legacy, ift, fd, option_a
   Real _ift_rate_step;
   bool _verify_tangent;
   Real _verify_tolerance;

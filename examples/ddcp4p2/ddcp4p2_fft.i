@@ -1,7 +1,9 @@
 # EARLY DEVELOPMENT TEST INPUT. Requires Marlin source additions and
-# DDCPFFTVolumeAverage postprocessor source in this package.
+# DDCPFFTVolumeAverage postprocessor compiled in your existing application.
 # a complete 54-property bcc_props_54.in file (NOT supplied).
 # This input is for a two-grain 4x4x4 periodic CPU trial.
+# Checkpoint created by this input is required for --recover: old
+# MOOSE-only checkpoints cannot be used to reconstruct DDCP state.
 [Domain]
   dim = 3
   nx = 4
@@ -46,12 +48,8 @@
 
   [Solve]
     [ddcp]
-      type = DDCP4P2TensorCompute
-      # Switch between the two registered material-point models here:
+      type = DDCPTensorCompute
       material_model = DDCP4P2Point
-      # material_model = DDCP4P2PointModified
-      # Demonstration ONLY (applies to Modified):
-      # model_stress_scale = 0.9
       buffer = stress
       tangent_operator = dstressdstrain
       F_trial = Fnew
@@ -60,8 +58,6 @@
       state_new = state_new
       propsFile = bcc_props_54.in
       slipSysFile = bcc_slip_sys1.in
-      # Read polycrystal grain orientations and global voxel map from orientation.in.
-      # The default orientation_file is 'orientation.in' relative to the run directory.
       orientation_file = orientation.in
       temperature = 300
       g = 1
@@ -69,11 +65,12 @@
       climbmodel = false
       irad_defects = false
       decomposition = 0
-      use_implicit_tangent = true
-      ift_rate_step = 1e-5
+      tangent_method = fd
+      verify_tangent = true
+      verify_reference_fd = true
+      verify_tangent_warn_only = true
+      # verify_tolerance = 1e-2
       fd_step = 1e-6
-      verify_tangent = false  # Enable separately for tangent-validation runs
-      verify_tolerance = 1e-3
     []
     [root]
       [macro]
@@ -110,6 +107,16 @@
   []
 []
 
+# Persistent Marlin tensor checkpoint bridge. MUST be present in the
+# original run from which --recover will resume.
+[Problem]
+  type = RhoCPFFTTensorProblem
+  # constitutive_compute = ddcp
+  checkpoint_buffers = 'F state K mu'
+  recovery_seed_from = 'F state'
+  recovery_seed_to = 'Fnew state_new'
+[]
+
 [TensorSolver]
   type = DDCPFFTForwardSolver
   mechanics_compute = mech
@@ -125,8 +132,8 @@
 [TensorOutputs]
   [vtk]
     type = XDMFTensorOutput
-    buffer = 'disp F stress state'
-    output_mode = 'OVERSIZED_NODAL CELL CELL CELL'
+    buffer = 'F stress state'
+    output_mode = 'CELL CELL CELL'
     enable_hdf5 = true
     execute_on = 'TIMESTEP_END'
   []
@@ -171,22 +178,28 @@
 []
 
 [Outputs]
+  file_base = out_ddtfft
+  [checkpoint]
+    type = Checkpoint
+    num_files = 3
+    time_step_interval = 5
+    execute_on = TIMESTEP_END
+  []
   [csv]
     type = CSV
-    file_base = ddcp_fft_curve
     execute_on = TIMESTEP_END
   []
 []
 
 [Executioner]
   type = Transient
-  end_time = 1.0
+  end_time = 10.0
   dtmin = 1e-6
   dtmax = 0.1
   abort_on_solve_fail = false
   [TimeStepper]
     type = DDCPFFTCutbackDT
-    dt = 0.01
+    dt = 0.1
     growth_factor = 1.2
     cutback_factor_at_failure = 0.5
   []

@@ -99,6 +99,10 @@ DDCPTensorCompute::validParams()
   params.addParam<Real>("g", 1., "Elastic degradation factor");
   params.addParam<Real>("gp", 1., "Plastic degradation factor");
   params.addParam<Real>("fd_step", 1e-6, "Relative perturbation for full-update dP/dF and IFT F derivatives");
+  params.addParam<std::string>("tangent_method", "legacy",
+      "legacy: use_implicit_tangent chooses IFT/FD (unchanged); "
+      "ift: IFT with FD fallback; fd: full-update FD; "
+      "option_a: approximate Jaumann-Cauchy pull-back of C_local");
   params.addParam<bool>("use_implicit_tangent", true,
                         "Use local Newton IFT tangent if a single subincrement converged; "
                         "otherwise fall back to the full-update FD tangent");
@@ -154,6 +158,7 @@ DDCPTensorCompute::DDCPTensorCompute(const InputParameters & params)
     _gp(getParam<Real>("gp")),
     _fd_step(getParam<Real>("fd_step")),
     _use_implicit_tangent(getParam<bool>("use_implicit_tangent")),
+    _tangent_method(getParam<std::string>("tangent_method")),
     _ift_rate_step(getParam<Real>("ift_rate_step")),
     _verify_tangent(getParam<bool>("verify_tangent")),
     _verify_tolerance(getParam<Real>("verify_tolerance")),
@@ -161,6 +166,9 @@ DDCPTensorCompute::DDCPTensorCompute(const InputParameters & params)
     _verify_reference_fd(getParam<bool>("verify_reference_fd")),
     _verify_max_reports(getParam<unsigned int>("verify_max_reports"))
 {
+  if (_tangent_method != "legacy" && _tangent_method != "ift" &&
+      _tangent_method != "fd" && _tangent_method != "option_a")
+    paramError("tangent_method", "Use legacy, ift, fd, or option_a");
   if (_ift_rate_step <= 0. || !std::isfinite(_ift_rate_step))
     paramError("ift_rate_step", "Must be positive and finite");
   if (_fd_step <= 0. || !std::isfinite(_fd_step))
@@ -289,7 +297,10 @@ DDCPTensorCompute::computeBuffer()
     in.temperature = _temperature;
     in.g = _g;
     in.gp = _gp;
-    in.request_implicit_tangent = _use_implicit_tangent;
+    in.request_implicit_tangent =
+        (_tangent_method == "ift") ||
+        (_tangent_method == "legacy" && _use_implicit_tangent);
+    in.request_option_a_tangent = (_tangent_method == "option_a");
     in.ift_F_step = _fd_step;
     in.ift_rate_step = _ift_rate_step;
 
@@ -314,22 +325,35 @@ DDCPTensorCompute::computeBuffer()
                                ", expected " + std::to_string(nstate));
     std::copy(result.state.begin(),result.state.end(),pnstate+nstate*v);
 
-    // Prefer implicit function differentiation of R(z,F)=0 at converged z.
-    // If subincrementing was used, propagate full history sensitivities
-    // in a future extension; for now use complete-update FD exactly.
+    // Select tangent without changing the already-converged constitutive stress.
+    // Option A makes an explicit, unverified Jaumann-Cauchy interpretation
+    // of the existing local rate stiffness. No constitutive re-integration.
     RankFourTensor A;
-    if (_use_implicit_tangent && result.implicit_tangent_available)
+    std::string tangent_source;
+    if (_tangent_method == "option_a")
+    {
+      if (!result.option_a_tangent_available)
+        throw std::runtime_error("DDCP4P2 Option A tangent was not returned");
+      A = result.A_option_a;
+      tangent_source = "Option A approximate Jaumann pull-back";
+    }
+    else if (in.request_implicit_tangent && result.implicit_tangent_available)
+    {
       A = result.A_implicit;
+      tangent_source = "IFT";
+    }
     else
     {
-      if (_use_implicit_tangent && v == 0)
+      if (in.request_implicit_tangent && v == 0)
         mooseWarning("DDCP4P2 IFT tangent unavailable; using full-update FD: ",
                      result.ift_status);
       try
       {
         DDCP4P2Input full_fd_input = in;
         full_fd_input.request_implicit_tangent = false;
+        full_fd_input.request_option_a_tangent = false;
         A = DDCP4P2Tangent::centralDifferencePK1(full_fd_input, material, _fd_step);
+        tangent_source = "full FD";
       }
       catch (const std::exception & e)
       {
@@ -368,7 +392,7 @@ DDCPTensorCompute::computeBuffer()
           const Real reference_error = DDCP4P2Tangent::directionalRelativeError(
               verify_input, material, reference_A, 2.0*_fd_step);
           mooseInfo("DDCP4P2 tangent diagnostic voxel=0; selected=",
-                    (result.implicit_tangent_available && _use_implicit_tangent ? "IFT" : "full FD"),
+                    tangent_source,
                     "; selected_error=", error,
                     "; reference_full_FD_error=", reference_error,
                     "; allowed=", _verify_tolerance,
@@ -384,13 +408,13 @@ DDCPTensorCompute::computeBuffer()
             mooseError("DDCP4P2 FFT tangent directional check: relative error = ",
                        error, "; allowed = ", _verify_tolerance,
                        "; source=",
-                       (result.implicit_tangent_available && _use_implicit_tangent ? "IFT" : "full FD"));
+                       tangent_source);
           if (!_verify_reference_fd && should_report)
           {
             mooseWarning("DDCP4P2 FFT tangent diagnostic (NOT VALIDATED): error=",
                          error, "; allowed=", _verify_tolerance,
                          "; source=",
-                         (result.implicit_tangent_available && _use_implicit_tangent ? "IFT" : "full FD"));
+                         tangent_source);
             ++_verify_reports;
           }
         }

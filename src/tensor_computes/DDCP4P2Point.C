@@ -1,5 +1,6 @@
 #include "DDCP4P2Point.h"
 #include "DDCP4P2ImplicitTangent.h"
+#include "DDCP4P2OptionATangent.h"
 #include "MatrixTools.h"
 #include <algorithm>
 #include <cmath>
@@ -102,6 +103,15 @@ DDCP4P2Result DDCP4P2Point::integrate(const DDCP4P2Input & input)
   if (J <= 0.) ddcpError("Non-positive det(F)");
   out.P = J * out.sigma * input.F_new.inverse().transpose();
   out.C_local = _Jacobian_mult[0];
+  out.A_option_a.zero();
+  if (input.request_option_a_tangent)
+  {
+    // Treat Eq.(31) C_local as a Jaumann Cauchy tangent by ASSUMPTION.
+    // The local stress and modulus have already been fully updated.
+    out.A_option_a = DDCP4P2OptionATangent::fromJaumannCauchy(
+        input.F_new, out.sigma, out.C_local);
+    out.option_a_tangent_available = true;
+  }
   out.A_implicit = _A_implicit;
   out.implicit_tangent_available = _ift_valid;
   out.used_constitutive_subincrements = _ever_subdivided;
