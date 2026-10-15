@@ -62,7 +62,15 @@ class DDCP4P2Point
 public:
   enum class Decomposition {none, voldev};
   explicit DDCP4P2Point(const DDCP4P2Data & data);
-  DDCP4P2Result integrate(const DDCP4P2Input & input);
+  virtual ~DDCP4P2Point() = default;
+
+  // The runtime factory returns unique_ptr<DDCP4P2Point>; dynamic dispatch
+  // selects the derived constitutive law. Each call must restart from input.state_old.
+  virtual DDCP4P2Result integrate(const DDCP4P2Input & input);
+
+  // Virtual because derived laws may have different state layouts. The static
+  // stateCount() is retained for old callers, but cannot be overridden in C++.
+  virtual unsigned int stateSize() const { return _num_state_vars; }
   static unsigned int stateCount(unsigned int ns, bool irradiation, bool climb);
 
 private:

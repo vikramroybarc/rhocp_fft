@@ -1,0 +1,38 @@
+// EXAMPLE - rename .example to .C only after implementing the actual law.
+// No MOOSE object registration or DDCPMaterialModel adapter is necessary.
+#include "DDCPPointFactory.h"
+#include <memory>
+#include <stdexcept>
+
+namespace
+{
+class CustomDDCP4P2Point final : public DDCP4P2Point
+{
+public:
+  explicit CustomDDCP4P2Point(const DDCP4P2Data & data) : DDCP4P2Point(data) {}
+
+  DDCP4P2Result integrate(const DDCP4P2Input & input) override
+  {
+    // TODO: replace with genuine constitutive modifications.
+    // The base class has private implementation internals; copying/refactoring
+    // its algorithms may be necessary for a fundamentally different law.
+    return DDCP4P2Point::integrate(input);
+  }
+
+  // Override stateSize() ONLY if you implement a different state layout.
+};
+
+// One static registration, in a .C file compiled and linked by RhoCPFFT.
+const bool registered_custom_point = []
+{
+  DDCPPointFactory::registerModel(
+      "CustomDDCP4P2Point",
+      [](const DDCP4P2Data & data, const DDCPPointOptions & options)
+      {
+        if (options.stress_scale != 1.0)
+          throw std::invalid_argument("CustomDDCP4P2Point does not use model_stress_scale");
+        return std::make_unique<CustomDDCP4P2Point>(data);
+      });
+  return true;
+}();
+} // namespace

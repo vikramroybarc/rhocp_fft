@@ -1,19 +1,23 @@
 #pragma once
 
 #include "TensorOperator.h"
-#include "DDCP4P2Point.h"
+#include "DDCPPointFactory.h"
+#include <memory>
+#include <string>
 #include <array>
 #include <vector>
 
-// CPU-only, voxel-by-voxel adapter around the unchanged local DDCP4P2 equations.
+// CPU-only, voxel-by-voxel adapter around a selectable local constitutive model.
 // Only trial buffers are modified during the global FFT solve.
-class DDCP4P2TensorCompute : public TensorOperator<>
+class DDCPTensorCompute : public TensorOperator<>
 {
 public:
   static InputParameters validParams();
-  explicit DDCP4P2TensorCompute(const InputParameters & params);
+  explicit DDCPTensorCompute(const InputParameters & params);
   void computeBuffer() override;
   bool supportsJIT() const override { return false; }
+  const std::string & materialModelName() const { return _material_model_name; }
+  std::string materialModelSignature() const;
 
 private:
   const torch::Tensor & _F_trial;
@@ -22,6 +26,8 @@ private:
   torch::Tensor & _state_new;
   torch::Tensor & _tangent;
   DDCP4P2Data _data;
+  const std::string _material_model_name;
+  std::unique_ptr<DDCP4P2Point> _material;
   // One orientation and grain ID per local voxel, in contiguous Torch order.
   std::vector<std::array<Real,3>> _orientations;
   std::vector<int> _voxel_grain_ids;

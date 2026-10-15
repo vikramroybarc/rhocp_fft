@@ -1,4 +1,4 @@
-#include "DDCP4P2TensorCompute.h"
+#include "DDCPTensorCompute.h"
 #include "DDCP4P2Tangent.h"
 #include "DDCPOrientationMap.h"
 #include "DomainAction.h"
@@ -10,9 +10,11 @@
 #include <algorithm>
 #include <stdexcept>
 #include <string>
+#include <sstream>
+#include <iomanip>
 #include <mpi.h>
 
-registerMooseObject("RhocpFFTApp", DDCP4P2TensorCompute);
+registerMooseObject("RhocpFFTApp", DDCPTensorCompute);
 
 namespace
 {
@@ -72,7 +74,7 @@ loadMatrix(const double * values)
 }
 
 InputParameters
-DDCP4P2TensorCompute::validParams()
+DDCPTensorCompute::validParams()
 {
   InputParameters params = TensorOperator<>::validParams();
   params.addClassDescription("CPU DDCP4P2 with local implicit-function tangent and full-update FD fallback.");
@@ -81,6 +83,13 @@ DDCP4P2TensorCompute::validParams()
   params.addRequiredParam<TensorInputBufferName>("state_old", "Committed state-variable buffer");
   params.addRequiredParam<TensorOutputBufferName>("state_new", "Trial state-variable buffer");
   params.addParam<TensorOutputBufferName>("tangent_operator", "dstressdstrain", "FFT tangent buffer");
+  params.addParam<std::string>("material_model", "DDCP4P2Point",
+                               "Name of a DDCP4P2Point subclass registered with DDCPPointFactory. Available built-ins: "
+                               "DDCP4P2Point (original) or DDCP4P2PointModified "
+                               "(stress-scale demonstrator only).");
+  params.addParam<Real>("model_stress_scale", 1.0,
+                        "Demonstration-only stress multiplier for DDCP4P2PointModified. "
+                        "Does not modify dislocation-density evolution.");
   params.addRequiredParam<FileName>("propsFile", "Original 54-entry DDCP properties file");
   params.addRequiredParam<FileName>("slipSysFile", "Original six-columns-per-system slip input");
   params.addParam<FileName>("orientation_file", "orientation.in",
@@ -117,7 +126,7 @@ DDCP4P2TensorCompute::validParams()
   return params;
 }
 
-DDCP4P2TensorCompute::DDCP4P2TensorCompute(const InputParameters & params)
+DDCPTensorCompute::DDCPTensorCompute(const InputParameters & params)
   : TensorOperator<>(params),
     _F_trial(getInputBuffer("F_trial")),
     _F_old(getInputBuffer("F_old")),
@@ -133,6 +142,13 @@ DDCP4P2TensorCompute::DDCP4P2TensorCompute(const InputParameters & params)
                    getParam<unsigned int>("crsslaw"),
                    getParam<unsigned int>("decomposition"),
                    getParam<Real>("tol"))),
+    _material_model_name(getParam<std::string>("material_model")),
+    _material([&]()
+    {
+      DDCPPointOptions options;
+      options.stress_scale = getParam<Real>("model_stress_scale");
+      return DDCPPointFactory::create(_material_model_name, _data, options);
+    }()),
     _temperature(getParam<Real>("temperature")),
     _g(getParam<Real>("g")),
     _gp(getParam<Real>("gp")),
@@ -195,31 +211,54 @@ DDCP4P2TensorCompute::DDCP4P2TensorCompute(const InputParameters & params)
       }
 
   if (mpi_rank == 0)
-    mooseInfo("DDCP4P2 polycrystal: loaded ", orientation_map.grainCount(),
+    mooseInfo("DDCP4P2 selected material_model=", _material_model_name,
+              "; stateSize=", _material->stateSize(),
+              "; polycrystal loaded ", orientation_map.grainCount(),
               " grains and ", orientation_map.voxelCount(),
               " global voxels from ", orientation_file);
 
 }
 
-void
-DDCP4P2TensorCompute::computeBuffer()
+std::string
+DDCPTensorCompute::materialModelSignature() const
 {
-  // The scalar DDCP4P2 solver is CPU only; device tensorization is future work.
+  std::ostringstream result;
+  result << _material_model_name << ";model_stress_scale="
+         << std::setprecision(17) << getParam<Real>("model_stress_scale");
+  return result.str();
+}
+
+void
+DDCPTensorCompute::computeBuffer()
+{
+  // This catches missing tensor checkpoint restoration before LibTorch reshape
+  // reports the cryptic "shape [-1,9] is invalid for input of size 4" error.
+  const auto expected_F = _domain.getValueShape({3,3});
+  const auto expected_state = _domain.getValueShape({static_cast<int64_t>(_material->stateSize())});
+  if (!_F_trial.defined() || !_F_old.defined() || !_state_old.defined() ||
+      _F_trial.sizes().vec() != expected_F ||
+      _F_old.sizes().vec() != expected_F ||
+      _state_old.sizes().vec() != expected_state)
+    throw std::runtime_error(
+        "DDCP model '" + _material_model_name +
+        "': inconsistent F/state tensor shape; expected spatial [...,3,3] and "
+        "[...,stateSize]. Check TensorBuffers/state value_dimensions and "
+        "RhoCPFFTTensorProblem recovery. Timestep cutback cannot repair a shape mismatch.");
+
+  // The scalar material points are CPU-only.
   if (!_F_trial.device().is_cpu() || !_F_old.device().is_cpu() ||
       !_state_old.device().is_cpu())
-    mooseError("DDCP4P2TensorCompute requires CPU tensors. Set Marlin's device to CPU.");
-
+    mooseError("DDCPTensorCompute requires CPU tensors. Set Marlin's device to CPU.");
   if (_tensor_problem.subDt() <= 0.)
-    mooseError("DDCP4P2TensorCompute requires positive substep dt");
+    mooseError("DDCPTensorCompute requires positive substep dt");
 
   const auto Fnew = _F_trial.to(torch::kFloat64).contiguous().reshape({-1,9});
   const auto Fold = _F_old.to(torch::kFloat64).contiguous().reshape({-1,9});
   const auto state = _state_old.to(torch::kFloat64).contiguous();
   const auto nvox = Fnew.size(0);
-  const auto nstate = DDCP4P2Point::stateCount(
-      static_cast<unsigned int>(_data.normals.size()), _data.irradiation, _data.climb);
+  const auto nstate = _material->stateSize();
   if (Fold.size(0) != nvox || state.numel() != nvox*nstate)
-    mooseError("DDCP4P2 F/state buffer dimensions do not match grid or stateCount");
+    mooseError("DDCP4P2 F/state buffer dimensions do not match grid or stateSize");
   if (static_cast<int64_t>(_orientations.size()) != nvox ||
       static_cast<int64_t>(_voxel_grain_ids.size()) != nvox)
     mooseError("DDCP4P2 orientation count does not match locally-owned FFT voxels; "
@@ -237,7 +276,7 @@ DDCP4P2TensorCompute::computeBuffer()
   double * pc = C.data_ptr<double>();
   double * pnstate = new_states.data_ptr<double>();
 
-  DDCP4P2Point material(_data);
+  auto & material = *_material;
   for (int64_t v=0; v<nvox; ++v)
   {
     DDCP4P2Input in;
@@ -268,6 +307,11 @@ DDCP4P2TensorCompute::computeBuffer()
     for (int i=0; i<3; ++i)
       for (int j=0; j<3; ++j)
         pp[9*v+3*i+j] = result.P(i,j);
+    if (result.state.size() != nstate)
+      throw std::runtime_error("DDCP model '" + _material_model_name +
+                               "' returned a state of length " +
+                               std::to_string(result.state.size()) +
+                               ", expected " + std::to_string(nstate));
     std::copy(result.state.begin(),result.state.end(),pnstate+nstate*v);
 
     // Prefer implicit function differentiation of R(z,F)=0 at converged z.

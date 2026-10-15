@@ -1,0 +1,23 @@
+# DDCP4P2 polycrystal format. Bunge phi1 Phi phi2 in degrees.
+# Voxel order: x outermost, y middle, z fastest.
+GRID 4 4 4
+GRAINS 2
+1 0.0 0.0 0.0
+2 45.0 35.26438968275 0.0
+VOXELS
+1 1 1 1
+1 1 1 1
+1 1 1 1
+1 1 1 1
+1 1 1 1
+1 1 1 1
+1 1 1 1
+1 1 1 1
+2 2 2 2
+2 2 2 2
+2 2 2 2
+2 2 2 2
+2 2 2 2
+2 2 2 2
+2 2 2 2
+2 2 2 2
