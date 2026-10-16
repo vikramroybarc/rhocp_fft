@@ -409,13 +409,16 @@ DDCPTensorCompute::computeBuffer()
                        error, "; allowed = ", _verify_tolerance,
                        "; source=",
                        tangent_source);
-          if (!_verify_reference_fd && should_report)
+          if (should_report)
           {
-            mooseWarning("DDCP4P2 FFT tangent diagnostic (NOT VALIDATED): error=",
-                         error, "; allowed=", _verify_tolerance,
-                         "; source=",
-                         tangent_source);
-            ++_verify_reports;
+            mooseWarning(
+                "DDCP4P2 FFT tangent diagnostic (NOT VALIDATED): error=",
+                error,
+                "; allowed=", _verify_tolerance,
+                "; source=", tangent_source);
+
+            if (!_verify_reference_fd)
+              ++_verify_reports;
           }
         }
       }

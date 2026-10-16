@@ -65,11 +65,13 @@
       climbmodel = false
       irad_defects = false
       decomposition = 0
-      tangent_method = option_a
-      verify_tangent = true
-      verify_reference_fd = true
+      tangent_method = fd
+      # verify_tangent = true
+      # verify_reference_fd = true
       # verify_tangent_warn_only = true
-      # verify_tolerance = 1e-2
+      # verify_tolerance = 1e-3
+      # verify_max_reports = 1000
+      # # verify_tolerance = 1e-2
       fd_step = 1e-6
     []
     [root]
@@ -178,7 +180,7 @@
 []
 
 [Outputs]
-  file_base = out_ddtfft
+  file_base = out_ddtfft_fd
   [checkpoint]
     type = Checkpoint
     num_files = 3
