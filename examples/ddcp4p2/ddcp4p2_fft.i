@@ -65,10 +65,10 @@
       climbmodel = false
       irad_defects = false
       decomposition = 0
-      tangent_method = fd
+      tangent_method = option_a
       verify_tangent = true
       verify_reference_fd = true
-      verify_tangent_warn_only = true
+      # verify_tangent_warn_only = true
       # verify_tolerance = 1e-2
       fd_step = 1e-6
     []
